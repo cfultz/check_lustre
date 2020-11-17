@@ -5,6 +5,9 @@
 # Josh Malone (redacted) - July 2013
 #
 # Revision 3 - July 17, 2013
+#
+# Github Version by Caleb Fultz (@cfultz)
+#
 # Revision 4 - Nov. 17, 2020
 
 use lib "/usr/lib64/nagios/plugins";
