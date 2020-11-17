@@ -2,9 +2,10 @@
 #
 # Nagios check plugin for lustre filesystems.
 #
-# Josh Malone (jmalone@nrao.edu) - July 2013
+# Josh Malone (redacted) - July 2013
 #
 # Revision 3 - July 17, 2013
+# Revision 4 - Nov. 17, 2020
 
 use lib "/usr/lib64/nagios/plugins";
 use lib "/usr/lib/nagios/plugins";
