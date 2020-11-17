@@ -1,0 +1,115 @@
+#!/usr/bin/perl
+#
+# Nagios check plugin for lustre filesystems.
+#
+# Josh Malone (jmalone@nrao.edu) - July 2013
+#
+# Revision 3 - July 17, 2013
+
+use lib "/usr/lib64/nagios/plugins";
+use lib "/usr/lib/nagios/plugins";
+use lib ".";
+use utils qw($TIMEOUT %ERRORS &print_revision &support);
+use Switch;
+use Getopt::Std;
+
+$exstate=$ERRORS{'OK'};
+$message="OK: All filesystems okay";
+%pctused=();
+%bused=();
+%btotal=();
+
+$warnpct=70;
+$critpct=85;
+
+##########
+
+getopts('w:c:htsv');
+if ($opt_w) { $warnpct=$opt_w; }
+if ($opt_c) { $critpct=$opt_c; }
+
+if ($opt_h) {
+    # Help message
+    print << "EOHELP";
+Usage:  check_lustre.pl [-w warn%] [-c crit%]
+
+        -w: Warning space threshold (percent used)
+        -c: Critical space threshold (percent used)
+        -t: Ignore OSTs that are temporarily unavailable
+EOHELP
+    exit 0;
+}
+
+# Set alarm to time out possibly hung `lfs df` command
+alarm 40;
+$SIG{ALRM} = sub {
+    print "CRITICAL: lustre lfs operation timed out\n";
+    exit $ERRORS{'CRITICAL'};
+};
+
+# Make sure lustre FS is loaded and available
+if ( ! -d "/proc/fs/lustre" ) {
+    print("CRITICAL: lustre filesystem not available!\n");
+    exit $ERRORS{'CRITICAL'};
+}
+
+open (PROC, "/sys/fs/lustre/health_check") or die("Cannot read lustre health_check - is lustre installed?");
+while(<PROC>) {
+    chomp();
+    if ($_ ne "healthy") {
+        $message="CRITICAL: Lustre not healthy";
+        $exstate=$ERRORS{'CRITICAL'};
+    }
+}
+close (PROC);
+
+if ($opt_s) {
+    open (LFS, "-")
+} else {
+    open (LFS, "lfs df |") or die("Cannot read from lfs!");
+}
+while (<LFS>) {
+    chomp();
+    print "$_\n" if ($opt_v);
+    @parts=split(' ');
+    switch ($_) {
+        case /Resource temporarily unavailable/ {
+                next unless ($opt_t);
+        }
+        case /unavailable/ {
+                $exstate=$ERRORS{'CRITICAL'};
+                $message="CRITICAL: ".join(' ',@parts);
+        }
+        case / summary/ {
+                $fs=$parts[6];
+                $fs=~s/.*\///;
+                $btotal{$fs}=$parts[2]*1024;
+                $bused{$fs}=$parts[3]*1024;
+                $tmp=$parts[5];
+                $tmp=~s/\%//;
+                $pctused{$fs}=$parts[5];
+                if ($parts[5] > $critpct) {
+                    # Don't overwrite a more serious OST error
+                    if( $exstate==$ERRORS{'OK'} ) {
+                        $message=sprintf("CRITICAL: Filesystem %s is %d%% full", $fs, $parts[5]);
+                        $exstate=$ERRORS{'CRITICAL'};
+                    }
+                }
+                if ($parts[5] > $warnpct) {
+                    if( $exstate==$ERRORS{'OK'} ) {
+                        $message=sprintf("WARNING: Filesystem %s is %d%% full", $fs, $parts[5]);
+                        $exstate=$ERRORS{'WARNING'};
+                    }
+                }
+        }
+    }
+}
+$perf='';
+foreach $fs (keys(%pctused)) {
+    $perf.=sprintf(" %s_percent_used=%s;%d;%d", $fs, $pctused{$fs}, $warnpct, $critpct );
+    $perf.=sprintf(" %s_used=%dBytes;%d;%d", $fs, $bused{$fs}, $btotal{$fs}*$warnpct, $btotal{$fs}*$critpct );
+}
+print $message." |$perf\n";
+exit $exstate;
+
+close(LFS);
